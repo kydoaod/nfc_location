@@ -1,15 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:nfc_manager/nfc_manager.dart';
+//import 'package:nfc_manager/nfc_manager.dart';
 import 'dart:convert' show utf8;
 
-/// Global flag if NFC is avalible
-bool isNfcAvalible = false;
+import 'package:nfc_counter/nfc_module/nfc_module.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Required for the line below
-  isNfcAvalible = await NfcManager.instance.isAvailable();
+  //isNfcAvalible = await NfcManager.instance.isAvailable();
   runApp(const MyApp());
 }
 
@@ -37,16 +36,22 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
   bool listenerRunning = false;
-  bool writeCounterOnNextContact = false;
+  bool isDoneLoading = false;
   final locationController = TextEditingController();
+  NfcModule? nfcModule;
   String location = '';
 
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
+  @override
+  void initState () {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_){
+      nfcModule = new NfcModule(setValueFromTag: setValueFromTag, listenerStatusCallback: listenerStatusCallback);
+      nfcModule?.initNfc();
+      setState(() {
+        isDoneLoading = true;
+      });
+    });  
   }
 
   @override
@@ -66,7 +71,10 @@ class _MyHomePageState extends State<MyHomePage> {
                 decoration: InputDecoration(
                   border: OutlineInputBorder(),
                   hintText: 'Enter Location:',
-                )
+                ),
+                onChanged: (text) {
+                  nfcModule?.setValueToWrite("TA-Location:" + text);
+                }
               )
             ),
             Text(
@@ -77,49 +85,53 @@ class _MyHomePageState extends State<MyHomePage> {
           ],
         ),
       ),
-      // floatingActionButton: FloatingActionButton(
-      //   onPressed: _incrementCounter,
-      //   tooltip: 'Increment',
-      //   child: const Icon(Icons.add),
-      // ),
     );
   }
 
   Widget _getNfcWidgets() {
-    if (isNfcAvalible) {
-      final nfcRunning = Platform.isAndroid && listenerRunning;
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          TextButton(
-            onPressed: nfcRunning ? null : _listenForNFCEvents,
-            child: Text(Platform.isAndroid
-                ? listenerRunning
-                    ? 'NFC is running'
-                    : 'Start NFC listener'
-                : 'Read from tag'),
-          ),
-          TextButton(
-            onPressed: writeCounterOnNextContact ? null : _writeNfcTag,
-            child: Text(writeCounterOnNextContact
-                ? 'Waiting for tag to write'
-                : 'Write to tag'),
-          ),
-          TextButton(
-              onPressed: () => setState(() {
-                    location = "";
-                    locationController.clear();
-                  }),
-              child: const Text('Clear all'))
-        ],
-      );
-    } else {
-      if (Platform.isIOS) {
-        return const Text("Your device doesn't support NFC");
+    if(isDoneLoading){
+      if (nfcModule!.getNfcAvailability()) {
+        final nfcRunning = Platform.isAndroid && listenerRunning;
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton(
+              onPressed: nfcRunning ? null : nfcModule?.listenForNFCEvents,
+              child: Text(Platform.isAndroid
+                  ? listenerRunning
+                      ? 'NFC is running'
+                      : 'Start NFC listener'
+                  : 'Read from tag'),
+            ),
+            TextButton(
+              onPressed: listenerRunning ? null : nfcModule?.writeToNfc,
+              child: Text(listenerRunning
+                  ? 'Waiting for tag to write'
+                  : 'Write to tag'),
+            ),
+            TextButton(
+                onPressed: () => setState(() {
+                      location = "";
+                      locationController.clear();
+                    }),
+                child: const Text('Clear all'))
+          ],
+        );
       } else {
-        return const Text(
-            "Your device doesn't support NFC or it's turned off in the system settings");
+        if (Platform.isIOS) {
+          return const Text("Your device doesn't support NFC");
+        } else {
+          return const Text(
+              "Your device doesn't support NFC or it's turned off in the system settings");
+        }
       }
+    } else {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('Module still loading please wait...')
+          ]
+        );
     }
   }
 
@@ -136,104 +148,36 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Future<void> _listenForNFCEvents() async {
-    if (Platform.isAndroid && listenerRunning == false || Platform.isIOS) {
-      if (Platform.isAndroid) {
-        _alert(
-          'NFC listener running in background now, approach tag(s)',
-        );
+  //Start Required callback functions for NFC module
+  
+  void setValueFromTag(String payload){
+    location = payload;
+    locationController.clear();
+    if (location != null) {
+        _alert("$location");
         setState(() {
-          listenerRunning = true;
+            location = location;
         });
-      }
-
-      NfcManager.instance.startSession(
-        onDiscovered: (NfcTag tag) async {
-          bool success = false;
-          final ndefTag = Ndef.from(tag);
-          if (ndefTag != null) {
-            if (writeCounterOnNextContact) {
-              setState(() {
-                writeCounterOnNextContact = false;
-              });
-              location = "TA-Location:" + locationController.text;
-              final ndefRecord = NdefRecord.createText(location);
-              final ndefMessage = NdefMessage([ndefRecord]);
-              try {
-                await ndefTag.write(ndefMessage);
-                locationController.clear();
-                _alert('$location written to tag');
-                success = true;
-              } catch (e) {
-                _alert("Writting failed, press 'Write to tag' again");
-              }
-            }
-            else if (ndefTag.cachedMessage != null) {
-              var ndefMessage = ndefTag.cachedMessage!;
-              if (ndefMessage.records.isNotEmpty &&
-                  ndefMessage.records.first.typeNameFormat ==
-                      NdefTypeNameFormat.nfcWellknown) {
-                final wellKnownRecord = ndefMessage.records.first;
-
-                if (wellKnownRecord.payload.first == 0x02) {
-                  final languageCodeAndContentBytes =
-                      wellKnownRecord.payload.skip(1).toList();
-                  final languageCodeAndContentText =
-                      utf8.decode(languageCodeAndContentBytes);
-                  final payload = languageCodeAndContentText.substring(2);
-                  location = payload;
-                  locationController.clear();
-                  if (location != null) {
-                    success = true;
-                    _alert("$location");
-                    setState(() {
-                      location = location;
-                    });
-                  }
-                }
-              }
-            }
-          }
-          //Due to the way ios handles nfc we need to stop after each tag
-          if (Platform.isIOS) {
-            NfcManager.instance.stopSession();
-          }
-          if (success == false) {
-            _alert(
-              'Tag was not valid',
-            );
-          }
-        },
-        // Required for iOS to define what type of tags should be noticed
-        pollingOptions: {
-          NfcPollingOption.iso14443,
-          NfcPollingOption.iso15693,
-        },
-      );
     }
   }
+
+  void listenerStatusCallback(bool _writeCounterOnNextContact){
+    setState(() {
+      listenerRunning = _writeCounterOnNextContact;
+    });
+  }
+
+  //End Required callback functions for NFC module
 
   @override
   void dispose() {
     try {
       locationController.dispose();
       super.dispose();
-      NfcManager.instance.stopSession();
+      //NfcManager.instance.stopSession();
     } catch (_) {
       //We dont care
     }
     super.dispose();
-  }
-
-  void _writeNfcTag() {
-    setState(() {
-      writeCounterOnNextContact = true;
-    });
-
-    if (Platform.isAndroid) {
-      _alert('Approach phone with tag');
-    }
-    //Writing a requires to read the tag first, on android this call might do nothing as the listner is already running
-    _listenForNFCEvents();
   }
 }
