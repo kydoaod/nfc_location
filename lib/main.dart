@@ -37,6 +37,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool listenerRunning = false;
+  bool writeMode = false;
   bool isDoneLoading = false;
   final locationController = TextEditingController();
   NfcModule? nfcModule;
@@ -46,7 +47,11 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState () {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_){
-      nfcModule = new NfcModule(setValueFromTag: setValueFromTag, listenerStatusCallback: listenerStatusCallback);
+      nfcModule = new NfcModule(
+        setValueFromTag: setValueFromTag,
+        listenerStatusCallback: listenerStatusCallback,
+        writeStatusCallback: writeStatusCallback
+      );
       nfcModule?.initNfc();
       setState(() {
         isDoneLoading = true;
@@ -104,8 +109,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   : 'Read from tag'),
             ),
             TextButton(
-              onPressed: listenerRunning ? null : nfcModule?.writeToNfc,
-              child: Text(listenerRunning
+              onPressed: writeMode? null : nfcModule?.writeToNfc,
+              child: Text(writeMode
                   ? 'Waiting for tag to write'
                   : 'Write to tag'),
             ),
@@ -161,10 +166,19 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  void listenerStatusCallback(bool _writeCounterOnNextContact){
+  void listenerStatusCallback(bool _listenerRunning){
     setState(() {
-      listenerRunning = _writeCounterOnNextContact;
+      listenerRunning = _listenerRunning;
     });
+  }
+
+  void writeStatusCallback(bool _writeMode){
+    setState(() {
+      writeMode = _writeMode;
+    });
+    if(!_writeMode){
+      locationController.clear();
+    }
   }
 
   //End Required callback functions for NFC module

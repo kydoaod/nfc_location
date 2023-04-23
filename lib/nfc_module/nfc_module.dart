@@ -14,11 +14,13 @@ import 'dart:convert' show utf8;
 class NfcModule{
     final void Function(String value) setValueFromTag;
     final void Function(bool listenerRunning) listenerStatusCallback;
+    final void Function(bool writeMode) writeStatusCallback;
     bool isNfcAvailable = false;
     bool listenerRunning = false;
+    bool writeMode = false;
     String value = "";
 
-    NfcModule({required this.setValueFromTag, required this.listenerStatusCallback});
+    NfcModule({required this.setValueFromTag, required this.listenerStatusCallback, required this.writeStatusCallback});
 
     void initNfc() async {
         isNfcAvailable = await NfcManager.instance.isAvailable();
@@ -36,14 +38,13 @@ class NfcModule{
         value = "";
     }
 
-    bool isListenerRunning(){
-        return listenerRunning;
-    }
-
     Future<void> writeToNfc() async {
-        if (Platform.isAndroid && listenerRunning == false || Platform.isIOS) {
+        writeStatusCallback(true);
+        if (Platform.isAndroid && !writeMode || Platform.isIOS) {
             if (Platform.isAndroid) {
                 listenerRunning = true;
+                writeMode = true;
+                writeStatusCallback(true);
                 listenerStatusCallback(true);
             }
             NfcManager.instance.startSession(
@@ -58,7 +59,10 @@ class NfcModule{
                             print('$value written to tag');
                             NfcManager.instance.stopSession();
                             listenerRunning = false;
+                            writeMode = false;
                             listenerStatusCallback(false);
+                            writeStatusCallback(false);
+                            setValueFromTag(value);
                             success = true;
                         } catch (e) {
                             print("Writting failed, press 'Write to tag' again");
@@ -84,6 +88,9 @@ class NfcModule{
     }
     
     Future<void> listenForNFCEvents() async {
+        if(writeMode){
+            return;
+        }
         if (Platform.isAndroid && listenerRunning == false || Platform.isIOS) {
             if (Platform.isAndroid) {
                 listenerRunning = true;
