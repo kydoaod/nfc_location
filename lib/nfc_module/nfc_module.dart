@@ -1,15 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:nfc_manager/nfc_manager.dart';
-import 'dart:convert' show utf8;
-
-// class NfcModule extends StatefulWidget { // immutable Widget
-//     final void Function(String) setValueFromTag;
-//     final void Function(bool) listenerStatusCallback;
-//     NfcModule(this.setValueFromTag, this.listenerStatusCallback);
-//     @override
-//     _NfcModule createState() => _NfcModule(this.setValueFromTag, this.listenerStatusCallback);
-// }
+import 'dart:convert';
 
 class NfcModule{
     final void Function(String value) setValueFromTag;
@@ -37,6 +29,55 @@ class NfcModule{
     void clearValue(String val){
         value = "";
     }
+
+    //START NFC info
+    String _getTechListString(NfcTag tag) {
+        final techList = <String>[];
+        if (tag.data.containsKey('nfca'))
+            techList.add('NfcA');
+        if (tag.data.containsKey('nfcb'))
+            techList.add('NfcB');
+        if (tag.data.containsKey('nfcf'))
+            techList.add('NfcF');
+        if (tag.data.containsKey('nfcv'))
+            techList.add('NfcV');
+        if (tag.data.containsKey('isodep'))
+            techList.add('IsoDep');
+        if (tag.data.containsKey('mifareclassic'))
+            techList.add('MifareClassic');
+        if (tag.data.containsKey('mifareultralight'))
+            techList.add('MifareUltralight');
+        if (tag.data.containsKey('ndef'))
+            techList.add('Ndef');
+        if (tag.data.containsKey('ndefformatable'))
+            techList.add('NdefFormatable');
+        return techList.join(', ');
+    }
+
+    String _getNdefType(String code) {
+        switch (code) {
+            case 'org.nfcforum.ndef.type1':
+            return 'NFC Forum Tag Type 1';
+            case 'org.nfcforum.ndef.type2':
+            return 'NFC Forum Tag Type 2';
+            case 'org.nfcforum.ndef.type3':
+            return 'NFC Forum Tag Type 3';
+            case 'org.nfcforum.ndef.type4':
+            return 'NFC Forum Tag Type 4';
+            default:
+            return 'Unknown';
+        }
+    }
+
+    String toHexString(var arr){
+        String hexData = "0x";
+        print(arr);
+        for (int i = 0; i < arr.length; i++) {
+            hexData += arr[i].toRadixString(16);
+        }
+        return hexData;
+    }
+    //END NFC info
 
     Future<void> writeToNfc() async {
         writeStatusCallback(true);
@@ -101,9 +142,20 @@ class NfcModule{
                 onDiscovered: (NfcTag tag) async {
                     bool success = false;
                     final ndefTag = Ndef.from(tag);
+                    final tagData = json.decode(json.encode(tag.data));
                     if (ndefTag != null) {
                         if (ndefTag.cachedMessage != null) {
                             var ndefMessage = ndefTag.cachedMessage!;
+                            print(
+                                json.encode({
+                                    "serialNumber": toHexString(tagData["ndef"]["identifier"]),
+                                    "techList": _getTechListString(tag),
+                                    "type": _getNdefType(ndefTag.additionalData['type']),
+                                    "size": '${ndefMessage?.byteLength ?? 0} / ${ndefTag.maxSize} bytes',
+                                    "writeable": ndefTag.isWritable,
+                                    //"atqa": toHexString(tagData["nfca"]["atqa"]),
+                                })
+                            );
                             if (ndefMessage.records.isNotEmpty &&
                                 ndefMessage.records.first.typeNameFormat ==
                                     NdefTypeNameFormat.nfcWellknown) {
